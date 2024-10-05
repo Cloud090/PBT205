@@ -174,14 +174,17 @@ def main():
 
     print("Tracker is running. Waiting for position and query updates.")
 
-    while True:
-        # Track positions
-        track_position()
+    try:
+        while True:
+            # Track positions
+            track_position()
 
-        # Handle queries
-        handle_query()
-        
-        time.sleep(1)  # Optional delay to avoid overwhelming the API
+            # Handle queries
+            handle_query()
+            
+            time.sleep(1)  # Optional delay to avoid overwhelming the API
+    except KeyboardInterrupt:
+        print(f"Exited")
 
 if __name__ == "__main__":
     main()

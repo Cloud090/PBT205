@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import ConnectionError, HTTPError
+import threading
 
 # Configuration
 RABBITMQ_HOST = 'localhost'
@@ -169,22 +170,36 @@ def handle_query():
         print(f"Response published for {query_person} with ID: {query_id}: {response}")  # Log the response published
 
 def main():
-    # Setup RabbitMQ exchange and queues
     create_exchange_and_queues()
-
     print("Tracker is running. Waiting for position and query updates.")
-
+    
     try:
-        while True:
-            # Track positions
-            track_position()
-
-            # Handle queries
-            handle_query()
-            
-            time.sleep(1)  # Optional delay to avoid overwhelming the API
+        # Create two threads: one for tracking positions and one for handling queries
+        position_thread = threading.Thread(target=track_positions_continuously)
+        query_thread = threading.Thread(target=handle_queries_continuously)
+        
+        # Start both threads
+        position_thread.start()
+        query_thread.start()
+        
+        # Join the threads to ensure they continue running
+        position_thread.join()
+        query_thread.join()
+        
     except KeyboardInterrupt:
-        print(f"Exited")
+        print("Exited")
+
+def track_positions_continuously():
+    """Continuously track positions."""
+    while True:
+        track_position()
+        time.sleep(0.5)  # Adjust the delay as needed
+
+def handle_queries_continuously():
+    """Continuously handle query requests."""
+    while True:
+        handle_query()
+        time.sleep(0.5)  # Adjust the delay as needed
 
 if __name__ == "__main__":
     main()

@@ -5,12 +5,16 @@ import time
 import json
 import sys
 from requests.auth import HTTPBasicAuth
+from create import create_exchange_and_queues
 
 # Configuration
 RABBITMQ_HOST = 'localhost'
 RABBITMQ_API_PORT = '15672'  # Default port for RabbitMQ API
 RABBITMQ_API_URL = f'http://{RABBITMQ_HOST}:{RABBITMQ_API_PORT}/api'
 EXCHANGE_NAME = 'contact_tracing'
+QUEUE_POSITION = 'position_queue'
+QUEUE_QUERY = 'query_queue'
+QUEUE_RESPONSE = 'query_response_queue'
 ROUTING_KEY_POSITION = 'position'
 GRID_SIZE = 10  # Grid size (can be changed to 1000x1000)
 USERNAME = 'guest'
@@ -60,7 +64,7 @@ if __name__ == "__main__":
     if len(sys.argv) != 3:
         print("Usage: python person.py <person_identifier> <move_speed>")
         sys.exit(1)
-
+    create_exchange_and_queues()
     person_identifier = sys.argv[1].lower()
     move_speed = float(sys.argv[2])
     

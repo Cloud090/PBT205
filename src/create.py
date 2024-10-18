@@ -5,7 +5,7 @@ import time
 import json
 import sys
 from requests.auth import HTTPBasicAuth
-
+#
 # Configuration
 RABBITMQ_HOST = 'localhost'
 RABBITMQ_API_PORT = '15672'  # Default port for RabbitMQ API
@@ -14,8 +14,11 @@ EXCHANGE_NAME = 'contact_tracing'
 QUEUE_POSITION = 'position_queue'
 QUEUE_QUERY = 'query_queue'
 QUEUE_RESPONSE = 'query_response_queue'
+QUEUE_CONTACT_NOTIFICATIONS = 'contact_notifications_queue'
 ROUTING_KEY_POSITION = 'position'
-GRID_SIZE = 10  # Grid size (can be changed to 1000x1000)
+ROUTING_KEY_QUERY = 'query'
+ROUTING_KEY_QUERY_RESPONSE = 'query-response'
+ROUTING_KEY_CONTACT_NOTIFICATIONS = 'contact-notifications'  # Routing key for contact notifications
 USERNAME = 'guest'
 PASSWORD = 'guest'
 
@@ -48,6 +51,11 @@ def create_exchange_and_queues():
     response_queue_url = f'{RABBITMQ_API_URL}/queues/%2F/{QUEUE_RESPONSE}'
     requests.put(response_queue_url, auth=auth, headers=headers, data=json.dumps(response_queue_data))
 
+    # Create contact notifications queue
+    contact_notifications_queue_data = {'durable': True}
+    contact_notifications_queue_url = f'{RABBITMQ_API_URL}/queues/%2F/{QUEUE_CONTACT_NOTIFICATIONS}'
+    requests.put(contact_notifications_queue_url, auth=auth, headers=headers, data=json.dumps(contact_notifications_queue_data))
+
     # Bind the queues to the exchange with the appropriate routing keys
     bind_data = {'routing_key': 'position'}
     bind_url = f'{RABBITMQ_API_URL}/bindings/%2F/e/{EXCHANGE_NAME}/q/{QUEUE_POSITION}'
@@ -59,4 +67,8 @@ def create_exchange_and_queues():
 
     bind_data = {'routing_key': 'query-response'}
     bind_url = f'{RABBITMQ_API_URL}/bindings/%2F/e/{EXCHANGE_NAME}/q/{QUEUE_RESPONSE}'
+    requests.post(bind_url, auth=auth, headers=headers, data=json.dumps(bind_data))
+
+    bind_data = {'routing_key': 'contact-notifications'}
+    bind_url = f'{RABBITMQ_API_URL}/bindings/%2F/e/{EXCHANGE_NAME}/q/{QUEUE_CONTACT_NOTIFICATIONS}'
     requests.post(bind_url, auth=auth, headers=headers, data=json.dumps(bind_data))

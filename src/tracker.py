@@ -17,6 +17,8 @@ EXCHANGE_NAME = 'contact_tracing'
 QUEUE_POSITION = 'position_queue'
 QUEUE_QUERY = 'query_queue'
 QUEUE_RESPONSE = 'query_response_queue'
+ROUTING_KEY_CONTACT_NOTIFICATIONS = 'contact-notifications'
+QUEUE_CONTACT_NOTIFICATIONS = 'contact_notifications_queue'
 USERNAME = 'guest'
 PASSWORD = 'guest'
 
@@ -84,7 +86,47 @@ def track_position():
                 contacts[person][other_person]['locations'].append((new_position[0], new_position[1], timestamp))
                 contacts[other_person][person]['locations'].append((new_position[0], new_position[1], timestamp))
 
+                # Publish contact notification
+                publish_contact_message(person, other_person, new_position)
+
         print(f"Updated contacts: {contacts}")
+
+def publish_contact_message(person, other_person, new_position):
+    """Publish a contact message to RabbitMQ."""
+    message = {
+        'person': person,
+        'contact_person': other_person,
+        'location': new_position,
+        'timestamp': datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+    }
+    # Call your RabbitMQ publish function here
+    publish_message(QUEUE_CONTACT_NOTIFICATIONS, ROUTING_KEY_CONTACT_NOTIFICATIONS, message) 
+
+def publish_message(queue_name, routing_key, message):
+    """Publish a message to a specific queue via RabbitMQ API."""
+    headers = {'content-type': 'application/json'}
+    publish_url = f'{RABBITMQ_API_URL}/exchanges/%2F/{EXCHANGE_NAME}/publish'
+
+    payload = {
+        'properties': {
+            'delivery_mode': 2,  # Make message persistent
+            'content_type': 'application/json'
+        },
+        'routing_key': routing_key,
+        'payload': json.dumps(message),
+        'payload_encoding': 'string'
+    }
+
+    try:
+        response = requests.post(publish_url, auth=auth, headers=headers, json=payload)  # Changed data to json
+        response.raise_for_status()
+        print(f"Published message to {queue_name}: {message}")
+        # Add response content for debugging
+        print(f"Publish response: {response.json()}")
+    except HTTPError as e:
+        print(f"Failed to publish message: {e.response.text}")
+    except ConnectionError as e:
+        print(f"Connection error occurred: {e}")
 
 def handle_query():
     """Consume and handle query requests."""
@@ -140,15 +182,22 @@ def main():
 
 def track_positions_continuously():
     """Continuously track positions."""
-    while True:
-        track_position()
-        time.sleep(0.5)  # Adjust the delay as needed
+    try:
+        while True:
+            track_position()
+            time.sleep(0.5)  # Adjust the delay as needed
+    except KeyboardInterrupt:
+        print(f"Stopped tracking")
+
 
 def handle_queries_continuously():
     """Continuously handle query requests."""
-    while True:
-        handle_query()
-        time.sleep(0.5)  # Adjust the delay as needed
+    try:
+        while True:
+            handle_query()
+            time.sleep(0.5)  # Adjust the delay as needed
+    except KeyboardInterrupt:
+        print(f"Stopped tracking")
 
 if __name__ == "__main__":
     main()

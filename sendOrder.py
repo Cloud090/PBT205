@@ -1,17 +1,49 @@
 import pika
+import argparse
+import json
 
-# Connection parameters
-connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
-channel = connection.channel()
+def send_order(username, middleware_endpoint, side, quantity, price, stock_symbol='XYZ'):
 
-# Declare the Orders exchange
-channel.exchange_declare(exchange='Orders', exchange_type='topic', durable=True)
+    # Connect to RabbitMQ middleware
+    connection = pika.BlockingConnection(pika.ConnectionParameters(middleware_endpoint))
+  
+    channel = connection.channel()
 
-# Publish a message to the Orders exchange
-order_message = "New Order: Stock XYZ"
-channel.basic_publish(exchange='Orders', routing_key='order.new', body=order_message)
+    # Declare the Orders exchange
+    channel.exchange_declare(exchange='Orders', exchange_type='topic', durable=True)
 
-print(f" [x] Sent '{order_message}' to Orders exchange.")
+    # Create the order message
+    order_message = {
+        "username": username,
+        "side": side,
+        "quantity": quantity,
+        "price": price,
+        "stock_symbol": stock_symbol
+    }
 
-# Close the connection
-connection.close()
+    # Publish the message to the 'Orders' exchange in JSON format
+    channel.basic_publish(
+        exchange='Orders', 
+        routing_key='order.new', 
+        body=json.dumps(order_message),
+        properties=pika.BasicProperties(delivery_mode=2)  # Make message persistent
+    )
+
+    print(f"[x] Sent Order: {json.dumps(order_message)}")
+
+    # Close the connection
+    connection.close()
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Send an order to RabbitMQ.")
+    parser.add_argument("username", type=str, help="The username of the trader")
+    parser.add_argument("middleware_endpoint", type=str, help="The RabbitMQ middleware endpoint (e.g., 'localhost')")
+    parser.add_argument("side", choices=['BUY', 'SELL'], help="Order side ('BUY' or 'SELL')")
+    parser.add_argument("--quantity", type=int, default=100, help="The quantity of the order (default: 100)")
+    parser.add_argument("price", type=float, help="The desired price for the order")
+
+    args = parser.parse_args()
+
+    # Call send_order with parsed arguments
+    send_order(args.username, args.middleware_endpoint, args.side, args.quantity, args.price)
+

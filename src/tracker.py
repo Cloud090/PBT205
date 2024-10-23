@@ -29,7 +29,7 @@ contacts = {}   # {person: {other_person: {count: int, locations: [(x, y, timest
 auth = HTTPBasicAuth(USERNAME, PASSWORD)
 
 def consume_message(queue_name):
-    """Consume a message from a specific queue."""
+    # Consume a message from a specific queue.
     consume_url = f'{RABBITMQ_API_URL}/queues/%2F/{queue_name}/get'
     
     for attempt in range(5):  # Retry up to 5 times

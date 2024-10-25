@@ -4,6 +4,7 @@ import sys
 import json
 from requests.auth import HTTPBasicAuth
 import time
+from dotenv import load_dotenv
 import uuid
 
 # Configuration

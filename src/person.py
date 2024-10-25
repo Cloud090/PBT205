@@ -4,117 +4,207 @@ import random
 import time
 import json
 import sys
+import os
+from dataclasses import dataclass
+from typing import Optional, Tuple
+from dotenv import load_dotenv
+import logging
 from requests.auth import HTTPBasicAuth
+from requests.exceptions import RequestException
+from contextlib import contextmanager
 from create import create_exchange_and_queues
 
-# Configuration
-RABBITMQ_HOST = 'localhost'
-RABBITMQ_API_PORT = '15672'  # Default port for RabbitMQ API
-RABBITMQ_API_URL = f'http://{RABBITMQ_HOST}:{RABBITMQ_API_PORT}/api'
-EXCHANGE_NAME = 'contact_tracing'
-QUEUE_POSITION = 'position_queue'
-QUEUE_QUERY = 'query_queue'
-QUEUE_RESPONSE = 'query_response_queue'
-QUEUE_CONTACT_NOTIFICATIONS = 'contact_notifications_queue'
-ROUTING_KEY_POSITION = 'position'
-GRID_SIZE = 10  # Grid size (can be changed to 1000x1000)
-USERNAME = 'guest'
-PASSWORD = 'guest'
-
-auth = HTTPBasicAuth(USERNAME, PASSWORD)
-positions = {}  # Dictionary to track positions of all people
-
-def publish_position(person, x, y):
-    """Publish the person's position to RabbitMQ via the HTTP API."""
-    headers = {'content-type': 'application/json'}
-    message = {
-        'properties': {},
-        'routing_key': ROUTING_KEY_POSITION,
-        'payload': json.dumps({'person': person, 'x': x, 'y': y}),
-        'payload_encoding': 'string'
-    }
-    
-    # Publish the message to the exchange
-    publish_url = f'{RABBITMQ_API_URL}/exchanges/%2F/{EXCHANGE_NAME}/publish'
-    response = requests.post(publish_url, auth=auth, headers=headers, data=json.dumps(message))
-    
-    if response.status_code == 200:
-        print(f"{person} moved to ({x}, {y})")
-    else:
-        print(f"Failed to publish position for {person}: {response.text}")
-
-def print_contact_notification(payload, person_name):
-    """Format and print the contact notification message."""
-    if payload['person'] == person_name:
-        print(f"You made contact with {payload['contact_person']} at {payload['timestamp']} @ {tuple(payload['location'])}")
-    elif payload['contact_person'] == person_name:
-        print(f"You made contact with {payload['person']} at {payload['timestamp']} @ {tuple(payload['location'])}")
-
-def consume_contact_notifications(person_name):
-    """Consume contact notifications from the contact_notifications queue."""
-    consume_url = f'{RABBITMQ_API_URL}/queues/%2F/{QUEUE_CONTACT_NOTIFICATIONS}/get'
-    
-    try:
-        response = requests.post(
-            consume_url, 
-            auth=auth, 
-            json={
-                'count': 1,
-                'ackmode': 'ack_requeue_false',  # Changed to not requeue automatically
-                'encoding': 'auto'
-            }
-        )
-        
-        if response.status_code == 200 and response.json():
-            message = response.json()[0]
-            payload = json.loads(message['payload'])
+@dataclass
+class Config:
+    """
+    Configuration class that loads and stores all necessary RabbitMQ connection and queue settings.
+    Uses environment variables for security so username & password is not in code file
+    """
+    def __init__(self, env_path: Optional[str] = None):
+        # Load environment variables from specified path or default to .env
+        if env_path:
+            load_dotenv(env_path)
+        else:
+            load_dotenv()
             
-            # Check if this message is relevant for this person
-            if payload['person'] == person_name or payload['contact_person'] == person_name:
-                # Print the notification
-                print_contact_notification(payload, person_name)
-            else:
-                # If message isn't for this person, requeue it
-                publish_url = f'{RABBITMQ_API_URL}/exchanges/%2F/{EXCHANGE_NAME}/publish'
-                requeue_message = {
-                    'properties': {},
-                    'routing_key': 'contact-notifications',
-                    'payload': message['payload'],
-                    'payload_encoding': 'string'
+        # Required credentials
+        self.USERNAME = os.getenv('RABBITMQ_USERNAME')
+        self.PASSWORD = os.getenv('RABBITMQ_PASSWORD')
+        
+        # Validate required credentials
+        if not self.USERNAME or not self.PASSWORD:
+            raise ValueError("Missing required credentials. Please check your .env file.")
+
+        # Configuration
+        self.RABBITMQ_HOST = os.getenv('RABBITMQ_HOST', 'localhost')
+        self.RABBITMQ_API_PORT = os.getenv('RABBITMQ_API_PORT', '15672')  # Default port for RabbitMQ API
+        self.EXCHANGE_NAME = os.getenv('EXCHANGE_NAME', 'contact_tracing')
+        self.QUEUE_POSITION = os.getenv('QUEUE_POSITION', 'position_queue')
+        self.QUEUE_QUERY = 'query_queue'
+        self.QUEUE_RESPONSE = 'query_response_queue'
+        self.QUEUE_CONTACT_NOTIFICATIONS = os.getenv('QUEUE_CONTACT_NOTIFICATIONS', 'contact_notifications_queue')
+        self.ROUTING_KEY_POSITION = os.getenv('ROUTING_KEY_POSITION', 'position')
+        self.GRID_SIZE = int(os.getenv('GRID_SIZE', '10'))
+
+        #timestamp format configuration
+        self.TIMESTAMP_FORMAT = os.getenv('TIMESTAMP_FORMAT', '%d-%m-%Y %H:%M:%S')
+    
+    @property
+    def api_url(self) -> str:
+        return f'http://{self.RABBITMQ_HOST}:{self.RABBITMQ_API_PORT}/api'
+
+class Person:
+    def __init__(self, config: Config, person_identifier: str, move_speed: float):
+        self.config = config
+        self.person_identifier = person_identifier.lower()
+        self.move_speed = move_speed
+        self.auth = HTTPBasicAuth(config.USERNAME, config.PASSWORD)
+        self.setup_logging()
+        
+    def setup_logging(self):
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(f'person_{self.person_identifier}.log'),
+                logging.StreamHandler()
+            ]
+        )
+        self.logger = logging.getLogger(__name__)
+
+    @contextmanager
+    def error_handling(self, operation: str):
+        """Context manager for consistent error handling"""
+        try:
+            yield
+        except RequestException as e:
+            self.logger.error(f"Request error during {operation}: {e}")
+        except Exception as e:
+            self.logger.error(f"Unexpected error during {operation}: {e}")
+
+    def publish_position(self, x: int, y: int):
+        """Publish the person's position to RabbitMQ via the HTTP API."""
+        message = {
+            'properties': {},
+            'routing_key': self.config.ROUTING_KEY_POSITION,
+            'payload': json.dumps({'person': self.person_identifier, 'x': x, 'y': y}),
+            'payload_encoding': 'string'
+        }
+        
+        publish_url = f'{self.config.api_url}/exchanges/%2F/{self.config.EXCHANGE_NAME}/publish'
+        
+        with self.error_handling("publishing position"):
+            response = requests.post(
+                publish_url,
+                auth=self.auth,
+                headers={'content-type': 'application/json'},
+                json=message
+            )
+            response.raise_for_status()
+            self.logger.info(f"Moved to ({x}, {y})")
+
+    def print_contact_notification(self, payload: dict):
+        """Format and print the contact notification message."""
+        if payload['person'] == self.person_identifier:
+            print(f"You made contact with {payload['contact_person']} at {payload['timestamp']} @ {tuple(payload['location'])}")
+        elif payload['contact_person'] == self.person_identifier:
+            print(f"You made contact with {payload['person']} at {payload['timestamp']} @ {tuple(payload['location'])}")
+
+    def consume_contact_notifications(self):
+        """Consume contact notifications from the contact_notifications queue."""
+        consume_url = f'{self.config.api_url}/queues/%2F/{self.config.QUEUE_CONTACT_NOTIFICATIONS}/get'
+        
+        with self.error_handling("consuming notifications"):
+            response = requests.post(
+                consume_url,
+                auth=self.auth,
+                json={
+                    'count': 1,
+                    'ackmode': 'ack_requeue_false',
+                    'encoding': 'auto'
                 }
-                requests.post(publish_url, auth=auth, headers={'content-type': 'application/json'}, 
-                            json=requeue_message)
-                    
-    except requests.exceptions.RequestException as e:
-        print(f"Error while consuming notifications: {e}")
+            )
+            response.raise_for_status()
+            
+            if response.status_code == 200 and response.json():
+                message = response.json()[0]
+                payload = json.loads(message['payload'])
+                
+                # Check if this message is relevant for this person
+                if payload['person'] == self.person_identifier or payload['contact_person'] == self.person_identifier:
+                    self.print_contact_notification(payload)
+                else:
+                    # If message isn't for this person, requeue it
+                    self.requeue_notification(message['payload'])
 
-def move_person(person, move_speed):
-    """Simulate the movement of a person on the grid."""
-    x, y = random.randint(0, GRID_SIZE - 1), random.randint(0, GRID_SIZE - 1)
+    def requeue_notification(self, payload: str):
+        """Requeue a notification that wasn't meant for this person."""
+        publish_url = f'{self.config.api_url}/exchanges/%2F/{self.config.EXCHANGE_NAME}/publish'
+        
+        message = {
+            'properties': {},
+            'routing_key': 'contact-notifications',
+            'payload': payload,
+            'payload_encoding': 'string'
+        }
+        
+        with self.error_handling("requeuing notification"):
+            response = requests.post(
+                publish_url,
+                auth=self.auth,
+                headers={'content-type': 'application/json'},
+                json=message
+            )
+            response.raise_for_status()
 
-    try:
-        while True:
-            # Random movement in any direction
-            dx, dy = random.choice([-1, 0, 1]), random.choice([-1, 0, 1])
-            x = max(0, min(x + dx, GRID_SIZE - 1))
-            y = max(0, min(y + dy, GRID_SIZE - 1))
+    def move(self):
+        """Simulate the movement of a person on the grid."""
+        x, y = random.randint(0, self.config.GRID_SIZE - 1), random.randint(0, self.config.GRID_SIZE - 1)
+        self.logger.info(f"Starting at position ({x}, {y})")
 
-            # Publish the new position to RabbitMQ
-            publish_position(person, x, y)
-            # Check for contact notifications
-            consume_contact_notifications(person)
+        try:
+            while True:
+                # Random movement in any direction
+                dx, dy = random.choice([-1, 0, 1]), random.choice([-1, 0, 1])
+                x = max(0, min(x + dx, self.config.GRID_SIZE - 1))
+                y = max(0, min(y + dy, self.config.GRID_SIZE - 1))
 
-            # Wait before next move
-            time.sleep(move_speed)
-    except KeyboardInterrupt:
-        print(f"Stopped movement for {person}")
+                # Publish the new position
+                self.publish_position(x, y)
+                
+                # Check for contact notifications
+                self.consume_contact_notifications()
 
-if __name__ == "__main__":
+                # Wait before next move
+                time.sleep(self.move_speed)
+                
+        except KeyboardInterrupt:
+            self.logger.info("Movement stopped by user")
+            sys.exit(0)
+
+def main():
     if len(sys.argv) != 3:
         print("Usage: python person.py <person_identifier> <move_speed>")
         sys.exit(1)
-    create_exchange_and_queues()
-    person_identifier = sys.argv[1].lower()
-    move_speed = float(sys.argv[2])
-    
-    move_person(person_identifier, move_speed)
+
+    try:
+        config = Config()
+        person_identifier = sys.argv[1]
+        move_speed = float(sys.argv[2])
+        
+        # Initialize queues
+        create_exchange_and_queues()
+        
+        # Create and run person
+        person = Person(config, person_identifier, move_speed)
+        person.move()
+        
+    except ValueError as e:
+        print(f"Configuration error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

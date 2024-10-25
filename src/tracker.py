@@ -19,6 +19,10 @@ from create import create_exchange_and_queues
 # Configuration
 @dataclass
 class Config:
+    """
+    Configuration class that loads and stores all necessary RabbitMQ connection and queue settings.
+    Uses environment variables for security so username & password is not in code file
+    """
     # Load environment variables from .env file
     def __init__(self, env_path: Optional[str] = None):
         # Load environment variables from specified path or default to .env
@@ -152,7 +156,7 @@ class ContactTracker:
             self.logger.debug(f"Published message: {message}")
 
     def record_contact(self, person1: str, person2: str, position: Tuple[int, int]):
-        """Record a contact between two people"""
+        """Record a contact between two people and ensure both receive a notification"""
         timestamp = datetime.now().strftime('%d-%m-%Y %H:%M:%S')
         
         for p1, p2 in [(person1, person2), (person2, person1)]:
@@ -164,11 +168,21 @@ class ContactTracker:
             self.contacts[p1][p2]['count'] += 1
             self.contacts[p1][p2]['locations'].append((position[0], position[1], timestamp))
 
+        # Publish notifications for both contacts in a single function call to avoid missing notifications
         self.publish_message(
             self.config.ROUTING_KEY_CONTACT_NOTIFICATIONS,
             {
                 'person': person1,
                 'contact_person': person2,
+                'location': position,
+                'timestamp': timestamp
+            }
+        )
+        self.publish_message(
+            self.config.ROUTING_KEY_CONTACT_NOTIFICATIONS,
+            {
+                'person': person2,
+                'contact_person': person1,
                 'location': position,
                 'timestamp': timestamp
             }

@@ -178,6 +178,7 @@ class ContactTracker:
                 'timestamp': timestamp
             }
         )
+        self.logger.info(f"Contact Notification sent to: {person2}")
         self.publish_message(
             self.config.ROUTING_KEY_CONTACT_NOTIFICATIONS,
             {
@@ -187,6 +188,7 @@ class ContactTracker:
                 'timestamp': timestamp
             }
         )
+        self.logger.info(f"Contact Notification sent to: {person1}")
 
     def track_position(self):
         """Process a single position update"""

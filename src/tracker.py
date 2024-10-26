@@ -39,7 +39,7 @@ class Config:
         if not self.USERNAME or not self.PASSWORD:
             raise ValueError("Missing required credentials. Please check your .env file.")
         
-        # Optional configuration with defaults
+        # Configuration
         self.RABBITMQ_HOST = os.getenv('RABBITMQ_HOST', 'localhost')
         self.RABBITMQ_API_PORT = os.getenv('RABBITMQ_API_PORT', '15672')
         self.EXCHANGE_NAME = os.getenv('EXCHANGE_NAME', 'contact_tracing')
@@ -50,7 +50,7 @@ class Config:
         self.QUEUE_CONTACT_NOTIFICATIONS = os.getenv('QUEUE_CONTACT_NOTIFICATIONS', 'contact_notifications_queue')
     
     @property
-    def api_url(self) -> str:
+    def api_url(self) -> str: # Constructs and returns the RabbitMQ API URL
         return f'http://{self.RABBITMQ_HOST}:{self.RABBITMQ_API_PORT}/api'
     
     def validate(self) -> bool:
@@ -69,16 +69,16 @@ class ContactTracker:
     def __init__(self, config: Config):
         self.config = config
         self.auth = HTTPBasicAuth(config.USERNAME, config.PASSWORD)
-        self.shutdown_event = threading.Event()
-        self.positions: Dict[str, Tuple[int, int]] = {}
-        self.contacts: Dict[str, Dict[str, Dict[str, List]]] = {}
+        self.shutdown_event = threading.Event() # Event for coordinating shutdown
+        self.positions: Dict[str, Tuple[int, int]] = {}  # Stores current positions of all people
+        self.contacts: Dict[str, Dict[str, Dict[str, List]]] = {} # Stores contact history
         self.setup_logging()
         try:
-            create_exchange_and_queues()
+            create_exchange_and_queues() # Creates exchange & queues if they do not exist
         except Exception as e:
             self.logger.error(f"Failed to initialise queues: {e}")
         
-    def setup_logging(self):
+    def setup_logging(self): # Configure logging to both file and console
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s',
@@ -105,13 +105,14 @@ class ContactTracker:
                 self.logger.error(f"Unexpected error during {operation}: {e}")
 
     def consume_message(self, queue_name: str) -> Optional[dict]:
-        """Consume a message with exponential backoff retry"""
+        """Consume a message with exponential backoff retry
+           Returns None if no message is available or on shutdown"""
         if self.shutdown_event.is_set():
             return None
 
         consume_url = f'{self.config.api_url}/queues/%2F/{queue_name}/get'
         
-        for attempt in range(5):
+        for attempt in range(5): # Retry up to 5 times with exponential backoff
             if self.shutdown_event.is_set():
                 return None
 
@@ -159,7 +160,7 @@ class ContactTracker:
         """Record a contact between two people and ensure both receive a notification"""
         timestamp = datetime.now().strftime('%d-%m-%Y %H:%M:%S')
         
-        for p1, p2 in [(person1, person2), (person2, person1)]:
+        for p1, p2 in [(person1, person2), (person2, person1)]: # Record contact for both people (bidirectional)
             if p1 not in self.contacts:
                 self.contacts[p1] = {}
             if p2 not in self.contacts[p1]:
@@ -169,29 +170,21 @@ class ContactTracker:
             self.contacts[p1][p2]['locations'].append((position[0], position[1], timestamp))
 
         # Publish notifications for both contacts in a single function call to avoid missing notifications
-        self.publish_message(
-            self.config.ROUTING_KEY_CONTACT_NOTIFICATIONS,
-            {
-                'person': person1,
-                'contact_person': person2,
-                'location': position,
-                'timestamp': timestamp
-            }
-        )
-        self.logger.info(f"Contact Notification sent to: {person2}")
-        self.publish_message(
-            self.config.ROUTING_KEY_CONTACT_NOTIFICATIONS,
-            {
-                'person': person2,
-                'contact_person': person1,
-                'location': position,
-                'timestamp': timestamp
-            }
-        )
-        self.logger.info(f"Contact Notification sent to: {person1}")
+        for person, contact_person in [(person1, person2), (person2, person1)]:
+            self.publish_message(
+                self.config.ROUTING_KEY_CONTACT_NOTIFICATIONS,
+                {
+                    'person': person,
+                    'contact_person': contact_person,
+                    'location': position,
+                    'timestamp': timestamp
+                }
+            )
+            self.logger.info(f"Contact Notification sent to: {person}")
 
     def track_position(self):
-        """Process a single position update"""
+        """Process a position update
+           Updates position and checks for contacts at the same location"""
         message = self.consume_message(self.config.QUEUE_POSITION)
         if not message:
             return
@@ -210,7 +203,7 @@ class ContactTracker:
                 self.record_contact(person, other_person, new_position)
 
     def handle_query(self):
-        """Handle a single query request"""
+        # Handle a single query request for contact information
         message = self.consume_message(self.config.QUEUE_QUERY)
         if not message:
             return
@@ -221,7 +214,7 @@ class ContactTracker:
         
         self.logger.info(f"Processing query {query_id} for {query_person}")
         
-        contact_info = self.contacts.get(query_person, {})
+        contact_info = self.contacts.get(query_person, {}) # Get contact information for the queried person
         response = {
             'query_id': query_id,
             'contacts': contact_info if contact_info else 'no contact'
@@ -231,7 +224,7 @@ class ContactTracker:
         self.logger.info(f"Query {query_id} processed and response sent")
 
     def run_thread(self, target, name):
-        """Run a thread with proper exception handling"""
+        # Run a thread with proper exception handling and shutdown coordination
         try:
             while not self.shutdown_event.is_set():
                 target()
@@ -241,12 +234,16 @@ class ContactTracker:
                 self.logger.error(f"Error in {name} thread: {e}")
                 
     def shutdown(self):
-        """Gracefully shutdown the tracker"""
+        # Gracefully shutdown the tracker
         self.logger.info("Initiating shutdown sequence...")
         self.shutdown_event.set()
 
     def run(self):
-        """Main execution method"""
+        """
+        Main execution method
+        Starts position tracking and query handling threads
+        Handles graceful shutdown on interrupt
+        """
         self.logger.info("Starting contact tracking system...")
         
         # Create threads
@@ -283,7 +280,7 @@ def main():
     config = Config()
     tracker = ContactTracker(config)
     
-    def signal_handler(signum, frame):
+    def signal_handler(signum, frame): # Setup signal handlers for graceful shutdown
         tracker.shutdown()
     
     signal.signal(signal.SIGINT, signal_handler)

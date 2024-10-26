@@ -52,7 +52,7 @@ def receive_messages(channel, method, properties, body):
             print(f"[{timestamp}] {message}")
         else:
             print(f"[{timestamp}] {sender}: {message}")
-
+            print("Enter Message: ")
 # start receiving messages function - consuming messages from the given queue, handles exceptions
 
 def start_receiving_messages(channel, queue_name):

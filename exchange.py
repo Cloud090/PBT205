@@ -1,6 +1,7 @@
 import pika
 import sys
 import json
+import signal
 
 class OrderNode:
     # Representing an order in the Binary Search Tree (BST)
@@ -213,6 +214,23 @@ def callback(ch, method, properties, body):
 
 def consume_orders(middleware_endpoint):
     """Consumes orders from the 'orders' topic and processes them."""
+    # Create connection and channel variables in broader scope
+    connection = None
+    channel = None
+    
+    def signal_handler(sig, frame):
+        """Handle Ctrl+C gracefully"""
+        print('\nClosing connection...')
+        if channel is not None:
+            channel.stop_consuming()
+        if connection is not None:
+            connection.close()
+        print('Connection closed successfully.')
+        sys.exit(0)
+    
+    # Set up the signal handler
+    signal.signal(signal.SIGINT, signal_handler)
+    
     try:
         # Connect to RabbitMQ middleware
         connection = pika.BlockingConnection(pika.ConnectionParameters(middleware_endpoint))
@@ -235,12 +253,17 @@ def consume_orders(middleware_endpoint):
         # Start consuming orders
         channel.basic_consume(queue=queue_name, on_message_callback=callback, auto_ack=True)
         channel.start_consuming()
+        
     except pika.exceptions.AMQPConnectionError as e:
         print(f"Error: Unable to connect to RabbitMQ at {middleware_endpoint}. Details: {e}")
         sys.exit(1)
     except pika.exceptions.AMQPError as e:
         print(f"Error with RabbitMQ: {e}")
         sys.exit(1)
+    finally:
+        # Ensure connection is closed if an error occurs
+        if connection is not None and not connection.is_closed:
+            connection.close()
 
 if __name__ == "__main__":
     # Ensure that the middleware endpoint argument is provided

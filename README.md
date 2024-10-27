@@ -1,41 +1,89 @@
-# PBT205
+# PBT205 - Trading System
 
-# Required software 
-- Python3.6+
-- install Pika libary  (pip install pika)
-- install RabbitMQ
+## Install Required Packages
 
-# Two main scripts
-- Sending orders (sendOrder.py)
-- Processing orders (exchange.py)
+1. Use pip to install the pika library, which is needed to interact with RabbitMQ:
+   ```bash
+   pip install pika
+   ```
 
+## Setup Instructions
 
-                -- # Running the trade system --
+1. Install and Configure Docker
 
-# Sending Oders
+2. Install RabbitMQ:
+   ```bash
+   docker run -it --rm --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:4.0-management
+   ```
 
-- python3 sendOrder.py <username> <host> <action> --quantity <quantity> <price>
+3. Check RabbitMQ is running in Docker
 
--- example: python3 sendOrder.py user1 localhost BUY --quantity 100 150.0
+4. Clone the application from GitHub:
+   ```bash
+   # Default clone to user folder
+   git clone https://github.com/Cloud090/PBT205.git
 
-Parameters:
-<username>: The username of the user sending the order (e.g., user1, user2).
-<host>: The RabbitMQ server host (usually localhost).
-<action>: The action to perform (BUY or SELL).
---quantity <quantity>: The quantity of stock to buy or sell.
-<price>: The price per unit of stock.
- 
- 
+   # Or clone to custom directory
+   git clone https://github.com/Cloud090/PBT205.git [desired_clone_directory_here]
+   ```
 
-# Processing Orders (open a new terminal)
+5. Open the project directory in CMD:
+   ```bash
+   cd PBT205  # or your custom directory
+   ```
 
-- Navigate to the project directory ( cd PBT205 )
-- python3 exchange.py 
+6. Switch to the Karma branch:
+   ```bash
+   git checkout Karma
+   ```
 
- This script will process any orders sent through the Orders exchange and display the output in the terminal. 
+7. Ensure code is up to date:
+   ```bash
+   git pull
+   ```
 
+## How to Run exchange.py
 
+1. Command format:
+   ```bash
+   Python exchange.py <host>
+   ```
+   Example:
+   ```bash
+   Python exchange.py localhost
+   ```
 
+2. Expected terminal activity:
+   ```
+   exchange.py will listen for order, attempt to match them, and log each step, as shown below.
+   Matching order: {'username': 'joe', 'side': 'sell', 'quantity': 10, 'price': 100.0, 'stock_symbol': 'XYZ'}
+   Order added to book: {'username': 'joe', 'side': 'sell', 'quantity': 10, 'price': 100.0, 'stock_symbol': 'XYZ'}
+   ```
 
+3. Trade Confirmation:
+   ```
+   Matching order: {'username': 'joe', 'side': 'sell', 'quantity': 10, 'price': 100.0, 'stock_symbol': 'XYZ'}
+   Order added to book: {'username': 'joe', 'side': 'sell', 'quantity': 10, 'price': 100.0, 'stock_symbol': 'XYZ'}
+   Matching order: {'username': 'alex', 'side': 'buy', 'quantity': 10, 'price': 100.0, 'stock_symbol': 'XYZ'}
+   Checking existing order: 100.0
+   [x] Trade published: {"buyer": "alex", "seller": "joe", "stock_symbol": "XYZ", "price": 100.0, "quantity": 10}
+   Trade published: alex with joe for 10 @ $100.0
+   ```
 
+## How to Run SendOrder.py
 
+1. Command format:
+   ```bash
+   python SendOrder.py [username] [middleware_endpoint] [side(buy/sell)] [quantity] [price]
+   ```
+   Example:
+   ```bash
+   python SendOrder.py john localhost BUY 10 100
+   ```
+
+2. The program will confirm the order:
+   ```
+   [x] Sent Order: {"username": "joe", "side": "buy", "quantity": 10, "price": 100.0, "stock_symbol": "XYZ"}
+   ```
+
+3. SendOrder.py will now exit

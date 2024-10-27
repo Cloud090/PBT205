@@ -54,8 +54,9 @@
    ```
 
 2. Expected terminal activity:
-   ```
+   
    exchange.py will listen for order, attempt to match them, and log each step, as shown below.
+   ```
    Matching order: {'username': 'joe', 'side': 'sell', 'quantity': 10, 'price': 100.0, 'stock_symbol': 'XYZ'}
    Order added to book: {'username': 'joe', 'side': 'sell', 'quantity': 10, 'price': 100.0, 'stock_symbol': 'XYZ'}
    ```
